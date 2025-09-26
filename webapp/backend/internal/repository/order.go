@@ -65,7 +65,10 @@ func (r *OrderRepository) GetShippingOrders(ctx context.Context) ([]model.Order,
 }
 
 // 注文履歴一覧を取得
+// MEMO:ここ修正する
 func (r *OrderRepository) ListOrders(ctx context.Context, userID int, req model.ListRequest) ([]model.Order, int, error) {
+	// return []model.Order{}, 0, nil
+
 	query := `
         SELECT order_id, product_id, shipped_status, created_at, arrived_at
         FROM orders

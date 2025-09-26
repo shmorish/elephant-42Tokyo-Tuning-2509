@@ -78,6 +78,7 @@ func (s *Server) setupRoutes(
 	userAuthMW func(http.Handler) http.Handler,
 	robotAuthMW func(http.Handler) http.Handler,
 ) {
+	// api's
 	s.Router.Post("/api/login", authHandler.Login)
 
 	s.Router.Route("/api/v1", func(r chi.Router) {
