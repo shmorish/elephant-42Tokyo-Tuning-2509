@@ -14,6 +14,7 @@ func NewProductRepository(db DBTX) *ProductRepository {
 }
 
 // 商品一覧を全件取得し、アプリケーション側でページング処理を行う
+// MEMO：ここ全権取得するのやめる
 func (r *ProductRepository) ListProducts(ctx context.Context, userID int, req model.ListRequest) ([]model.Product, int, error) {
 	var products []model.Product
 	baseQuery := `

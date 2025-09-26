@@ -19,6 +19,7 @@ type Server struct {
 	Router *chi.Mux
 }
 
+// 実質ここがアプリケーションのエントリポイント
 func NewServer() (*Server, *sqlx.DB, error) {
 	dbConn, err := db.InitDBConnection()
 	if err != nil {
