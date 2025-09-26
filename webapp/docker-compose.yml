@@ -119,6 +119,10 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
       - /da/tls:/da/tls:ro
+      - ./nginx/init.sh:/init.sh:ro
+      - ./nginx/alp.sh:/alp.sh:ro
+    entrypoint: ["/init.sh"]
+    command: ["nginx", "-g", "daemon off;"]
     networks:
       - webapp-network
     depends_on:
