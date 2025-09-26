@@ -9,4 +9,4 @@ deploy:
 	make run
 
 restart-backend:
-	docker-compose up --build backend
+	cd webapp && docker-compose -f docker-compose.local.yml up -d --build backend

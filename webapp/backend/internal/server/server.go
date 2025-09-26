@@ -83,8 +83,11 @@ func (s *Server) setupRoutes(
 
 	s.Router.Route("/api/v1", func(r chi.Router) {
 		r.Use(userAuthMW)
+		// 商品一覧取得
 		r.Post("/product", productHandler.List)
+		// 注文処理
 		r.Post("/product/post", productHandler.CreateOrders)
+		// 注文一覧取得
 		r.Post("/orders", orderHandler.List)
 		r.Get("/image", productHandler.GetImage)
 	})
