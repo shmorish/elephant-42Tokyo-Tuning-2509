@@ -8,3 +8,5 @@ deploy:
 	git pull origin main
 	make run
 
+restart-backend:
+	docker-compose up --build backend
