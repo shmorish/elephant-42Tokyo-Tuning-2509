@@ -51,7 +51,7 @@ where
 order by
   SUM_TIMER_WAIT desc
 limit
-  3\G;
+  3;
 
 
 -- Used in: session.go:42-43 (JOIN user_sessions s ON u.user_id = s.user_id WHERE s.session_uuid = ?)
