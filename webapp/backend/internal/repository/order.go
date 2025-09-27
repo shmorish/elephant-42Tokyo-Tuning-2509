@@ -152,28 +152,16 @@ func (r *OrderRepository) ListOrders(ctx context.Context, userID int, req model.
 		orderByClause += " ASC"
 	}
 
-	countQuery := fmt.Sprintf(`
-		SELECT COUNT(*)
-		FROM orders o
-		JOIN products p ON o.product_id = p.product_id
-		WHERE o.user_id = ?
-		%s
-	`, searchCondition)
-
-	var total int
-	err := r.db.GetContext(ctx, &total, countQuery, args...)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	dataQuery := fmt.Sprintf(`
+	// 1回のクエリでデータとカウントの両方を取得（ウィンドウ関数使用）
+	query := fmt.Sprintf(`
 		SELECT
 			o.order_id,
 			o.product_id,
 			p.name as product_name,
 			o.shipped_status,
 			o.created_at,
-			o.arrived_at
+			o.arrived_at,
+			COUNT(*) OVER() as total_count
 		FROM orders o
 		JOIN products p ON o.product_id = p.product_id
 		WHERE o.user_id = ?
@@ -184,20 +172,28 @@ func (r *OrderRepository) ListOrders(ctx context.Context, userID int, req model.
 
 	args = append(args, req.PageSize, req.Offset)
 
-	type orderRow struct {
+	type orderRowWithCount struct {
 		OrderID       int          `db:"order_id"`
 		ProductID     int          `db:"product_id"`
 		ProductName   string       `db:"product_name"`
 		ShippedStatus string       `db:"shipped_status"`
 		CreatedAt     sql.NullTime `db:"created_at"`
 		ArrivedAt     sql.NullTime `db:"arrived_at"`
+		TotalCount    int          `db:"total_count"`
 	}
 
-	var ordersRaw []orderRow
-	err = r.db.SelectContext(ctx, &ordersRaw, dataQuery, args...)
+	var ordersRaw []orderRowWithCount
+	err := r.db.SelectContext(ctx, &ordersRaw, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
+
+	if len(ordersRaw) == 0 {
+		return []model.Order{}, 0, nil
+	}
+
+	// 最初の行からtotal_countを取得
+	total := ordersRaw[0].TotalCount
 
 	orders := make([]model.Order, len(ordersRaw))
 	for i, o := range ordersRaw {
