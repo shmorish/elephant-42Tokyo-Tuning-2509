@@ -32,6 +32,57 @@ func (r *OrderRepository) Create(ctx context.Context, order *model.Order) (strin
 	return fmt.Sprintf("%d", id), nil
 }
 
+// 複数の注文を一括で作成し、生成された注文IDのリストを返す
+func (r *OrderRepository) CreateBulk(ctx context.Context, userID int, items []model.RequestItem) ([]string, error) {
+	if len(items) == 0 {
+		return []string{}, nil
+	}
+
+	// 数量分の値を準備
+	var values []string
+	var args []interface{}
+
+	for _, item := range items {
+		for i := 0; i < item.Quantity; i++ {
+			values = append(values, "(?, ?, 'shipping', NOW())")
+			args = append(args, userID, item.ProductID)
+		}
+	}
+
+	if len(values) == 0 {
+		return []string{}, nil
+	}
+
+	// バルクINSERTクエリを構築
+	query := fmt.Sprintf("INSERT INTO orders (user_id, product_id, shipped_status, created_at) VALUES %s",
+		strings.Join(values, ", "))
+
+	result, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	// 最初のIDを取得
+	firstID, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+
+	// 影響を受けた行数を取得
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+
+	// IDのリストを生成
+	orderIDs := make([]string, rowsAffected)
+	for i := int64(0); i < rowsAffected; i++ {
+		orderIDs[i] = fmt.Sprintf("%d", firstID+i)
+	}
+
+	return orderIDs, nil
+}
+
 // 複数の注文IDのステータスを一括で更新
 // 主に配送ロボットが注文を引き受けた際に一括更新をするために使用
 func (r *OrderRepository) UpdateStatuses(ctx context.Context, orderIDs []int64, newStatus string) error {
