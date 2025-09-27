@@ -94,6 +94,7 @@ func (s *Server) setupRoutes(
 
 	s.Router.Route("/api/robot", func(r chi.Router) {
 		r.Use(robotAuthMW)
+		// 配達プラン取得（ここやばい）
 		r.Get("/delivery-plan", robotHandler.GetDeliveryPlan)
 		r.Patch("/orders/status", robotHandler.UpdateOrderStatus)
 	})

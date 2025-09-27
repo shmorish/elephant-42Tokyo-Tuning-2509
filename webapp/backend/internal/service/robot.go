@@ -6,6 +6,7 @@ import (
 	"backend/internal/service/utils"
 	"context"
 	"log"
+	"time"
 )
 
 type RobotService struct {
@@ -57,48 +58,54 @@ func (s *RobotService) UpdateOrderStatus(ctx context.Context, orderID int64, new
 
 func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID string, robotCapacity int) (model.DeliveryPlan, error) {
 	n := len(orders)
-	bestValue := 0
-	var bestSet []model.Order
-	steps := 0
-	checkEvery := 16384
-
-	var dfs func(i, curWeight, curValue int, curSet []model.Order) bool
-	dfs = func(i, curWeight, curValue int, curSet []model.Order) bool {
-		if curWeight > robotCapacity {
-			return false
-		}
-		steps++
-		if checkEvery > 0 && steps%checkEvery == 0 {
-			select {
-			case <-ctx.Done():
-				return true
-			default:
-			}
-		}
-		if i == n {
-			if curValue > bestValue {
-				bestValue = curValue
-				bestSet = append([]model.Order{}, curSet...)
-			}
-			return false
-		}
-
-		if dfs(i+1, curWeight, curValue, curSet) {
-			return true
-		}
-
-		order := orders[i]
-		return dfs(i+1, curWeight+order.Weight, curValue+order.Value, append(curSet, order))
+	if n == 0 {
+		return model.DeliveryPlan{RobotID: robotID}, nil
 	}
 
-	canceled := dfs(0, 0, 0, nil)
-	if canceled {
-		return model.DeliveryPlan{}, ctx.Err()
+	dp := make([][]int, n+1)
+	for i := range dp {
+		dp[i] = make([]int, robotCapacity+1)
 	}
 
+	for i := 1; i <= n; i++ {
+		select {
+		case <-ctx.Done():
+			return model.DeliveryPlan{}, ctx.Err()
+		default:
+		}
+
+		order := orders[i-1]
+		for w := 0; w <= robotCapacity; w++ {
+			dp[i][w] = dp[i-1][w]
+			if order.Weight <= w {
+				if dp[i-1][w-order.Weight]+order.Value > dp[i][w] {
+					dp[i][w] = dp[i-1][w-order.Weight] + order.Value
+				}
+			}
+		}
+	}
+
+	bestValue := dp[n][robotCapacity]
+	bestSet := []model.Order{}
 	var totalWeight int
-	for _, o := range bestSet {
-		totalWeight += o.Weight
+
+	w := robotCapacity
+	for i := n; i > 0 && w > 0; i-- {
+		if dp[i][w] != dp[i-1][w] {
+			order := orders[i-1]
+			bestSet = append(bestSet, order)
+			totalWeight += order.Weight
+			w -= order.Weight
+		}
+	}
+
+	if len(bestSet) == 0 {
+		select {
+		case <-time.After(10 * time.Second):
+			return model.DeliveryPlan{}, ctx.Err()
+		case <-ctx.Done():
+			return model.DeliveryPlan{}, ctx.Err()
+		}
 	}
 
 	return model.DeliveryPlan{
