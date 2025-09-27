@@ -75,3 +75,15 @@ CREATE INDEX idx_orders_covering ON orders(user_id, order_id, product_id, shippe
 ALTER TABLE products ADD FULLTEXT(name, description);
 ALTER TABLE products ADD FULLTEXT(name);
 ALTER TABLE products ADD FULLTEXT(description);
+
+-- Additional performance indexes for /api/v1/product endpoint optimization
+-- Composite indexes for sorting by most common sort fields
+CREATE INDEX idx_products_value_id ON products(value, product_id);
+CREATE INDEX idx_products_weight_id ON products(weight, product_id);
+
+-- Individual field indexes for exact matches and range queries
+CREATE INDEX idx_products_value ON products(value);
+CREATE INDEX idx_products_weight ON products(weight);
+
+-- Covering index for common query patterns (includes all frequently accessed columns)
+CREATE INDEX idx_products_covering ON products(product_id, name, value, weight);
