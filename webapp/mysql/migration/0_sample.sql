@@ -72,3 +72,7 @@ CREATE INDEX idx_orders_user_arrived ON orders(user_id, arrived_at);
 
 -- Used in: order.go:177-182 (SELECT order_id, product_id, shipped_status, created_at, arrived_at)
 CREATE INDEX idx_orders_covering ON orders(user_id, order_id, product_id, shipped_status, created_at, arrived_at);
+
+ALTER TABLE products ADD FULLTEXT(name, description);
+ALTER TABLE products ADD FULLTEXT(name);
+ALTER TABLE products ADD FULLTEXT(description);
