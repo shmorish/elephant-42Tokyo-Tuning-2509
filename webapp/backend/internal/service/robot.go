@@ -6,6 +6,7 @@ import (
 	"backend/internal/service/utils"
 	"context"
 	"log"
+	"slices"
 )
 
 type RobotService struct {
@@ -78,7 +79,7 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 		for w := 0; w <= robotCapacity; w++ {
 			// 注文iを選ばない場合
 			dp[i][w] = dp[i-1][w]
-			
+
 			// 注文iを選ぶ場合（重さ制限を満たす場合のみ）
 			if order.Weight <= w {
 				selectValue := dp[i-1][w-order.Weight] + order.Value
@@ -87,7 +88,7 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 				}
 			}
 		}
-		
+
 		// コンテキストキャンセルチェック
 		if i%1000 == 0 {
 			select {
@@ -98,24 +99,39 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 		}
 	}
 
-	// 最適解を復元
 	bestValue := dp[n][robotCapacity]
+
+	// 最適解を復元
 	var selectedOrders []model.Order
-	
 	w := robotCapacity
 	for i := n; i > 0 && w > 0; i-- {
+		select {
+		case <-ctx.Done():
+			return model.DeliveryPlan{}, ctx.Err()
+		default:
+		}
+
 		order := orders[i-1]
-		// 注文iが選ばれているかチェック
-		if order.Weight <= w && dp[i-1][w-order.Weight]+order.Value == dp[i][w] {
+
+		// 安全な順序で条件評価
+		if w >= order.Weight && dp[i-1][w-order.Weight]+order.Value == dp[i][w] {
 			selectedOrders = append(selectedOrders, order)
 			w -= order.Weight
 		}
 	}
 
-	// 選択された注文の総重量を計算
+	// 注文の順序を元に戻す（復元は逆順で行われているため）
+	slices.Reverse(selectedOrders)
+
+	// 総重量を計算
 	var totalWeight int
 	for _, order := range selectedOrders {
 		totalWeight += order.Weight
+	}
+
+	// 警告ログ（デバッグ用）
+	if len(selectedOrders) == 0 && bestValue > 0 {
+		log.Printf("WARNING: bestValue=%d but no orders selected", bestValue)
 	}
 
 	return model.DeliveryPlan{
