@@ -51,3 +51,23 @@ order by
   SUM_TIMER_WAIT desc
 limit
   3\G;
+
+
+-- Used in: session.go:42-43 (JOIN user_sessions s ON u.user_id = s.user_id WHERE s.session_uuid = ?)
+CREATE INDEX idx_user_sessions_uuid_expires ON user_sessions(session_uuid, expires_at, user_id);
+
+-- Used in: user.go:23 (WHERE user_name = ?)
+CREATE INDEX idx_users_user_name ON users(user_name);
+
+-- Used in: order.go:111 (WHERE o.shipped_status = 'shipping')
+CREATE INDEX idx_orders_shipped_status ON orders(shipped_status, product_id);
+
+-- Used in: product.go:115,133 (WHERE (name LIKE ? OR description LIKE ?))
+CREATE INDEX idx_products_description ON products(description(100));
+
+-- Used in: order.go:136-146 (ORDER BY various fields)
+CREATE INDEX idx_orders_user_created_desc ON orders(user_id, created_at DESC);
+CREATE INDEX idx_orders_user_arrived ON orders(user_id, arrived_at);
+
+-- Used in: order.go:177-182 (SELECT order_id, product_id, shipped_status, created_at, arrived_at)
+CREATE INDEX idx_orders_covering ON orders(user_id, order_id, product_id, shipped_status, created_at, arrived_at);
