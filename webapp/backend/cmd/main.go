@@ -6,10 +6,9 @@ import (
 
    	// ...既存のインポート...
    	"backend/internal/server"
-   	"log"
-
    	"backend/internal/telemetry"
 )
+
 
 func main() {
 
