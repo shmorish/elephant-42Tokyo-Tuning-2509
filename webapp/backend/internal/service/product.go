@@ -47,7 +47,7 @@ func (s *ProductService) CreateOrders(ctx context.Context, userID int, items []m
 	return insertedOrderIDs, nil
 }
 
-func (s *ProductService) FetchProducts(ctx context.Context, userID int, req model.ListRequest) ([]model.Product, int, error) {
+func (s *ProductService) FetchProducts(ctx context.Context, userID int, req model.ListRequest) ([]model.ProductListItem, int, error) {
 	products, total, err := s.store.ProductRepo.ListProducts(ctx, userID, req)
 	return products, total, err
 }
