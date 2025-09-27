@@ -17,5 +17,8 @@ restore-vm:
 nginx:
 	docker exec -it tuning-nginx bash
 
+mysql:
+	docker exec -it tuning-mysql mysql -u root -p
+
 alp:
 	docker exec -it tuning-nginx bash alp.sh
