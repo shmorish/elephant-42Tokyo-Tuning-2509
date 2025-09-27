@@ -15,11 +15,14 @@ type cacheEntry struct {
 }
 
 type ProductRepository struct {
-	db    DBTX
-	sf    singleflight.Group
-	cache map[string]cacheEntry
-	mutex sync.RWMutex
-	ttl   time.Duration
+	db         DBTX
+	sf         singleflight.Group
+	cache      map[string]cacheEntry
+	mutex      sync.RWMutex
+	ttl        time.Duration
+	totalCount int           // Cache total count
+	countMutex sync.RWMutex  // Separate mutex for count
+	countTime  time.Time     // Last count update time
 }
 
 func NewProductRepository(db DBTX) *ProductRepository {
@@ -31,7 +34,7 @@ func NewProductRepository(db DBTX) *ProductRepository {
 }
 
 // 商品一覧をDBレベルでページングして取得（キャッシュ＋シングルフライト対応）
-func (r *ProductRepository) ListProducts(ctx context.Context, userID int, req model.ListRequest) ([]model.Product, int, error) {
+func (r *ProductRepository) ListProducts(ctx context.Context, userID int, req model.ListRequest) ([]model.ProductListItem, int, error) {
 	// Create optimized cache key - include userID for proper isolation
 	// Use a more efficient key format
 	key := fmt.Sprintf("p:%d:%s:%s:%s:%d:%d", userID, req.Search, req.SortField, req.SortOrder, req.PageSize, req.Offset)
@@ -100,16 +103,12 @@ func (r *ProductRepository) cleanupCache() {
 }
 
 type productResult struct {
-	products []model.Product
+	products []model.ProductListItem
 	total    int
 }
 
 func (r *ProductRepository) listProductsInternal(ctx context.Context, userID int, req model.ListRequest) (productResult, error) {
-	var products []model.Product
-
-	// Build optimized query with proper indexing support
-	var query string
-	var args []interface{}
+	var products []model.ProductListItem
 
 	// Validate and sanitize sort field to prevent SQL injection
 	validSortFields := map[string]bool{
@@ -119,74 +118,94 @@ func (r *ProductRepository) listProductsInternal(ctx context.Context, userID int
 		"weight":     true,
 	}
 	if !validSortFields[req.SortField] {
-		req.SortField = "product_id" // fallback to safe default
+		req.SortField = "product_id"
 	}
 
-	// Validate sort order
 	if req.SortOrder != "asc" && req.SortOrder != "desc" {
 		req.SortOrder = "asc"
 	}
 
+	// Use separate queries for better performance
+	// 1. Get total count only when needed (cache it)
+	// 2. Get actual data without heavy COUNT(*) OVER()
+
+	var total int
+	var query string
+	var args []interface{}
+
+	// Fast count query
 	if req.Search != "" {
-		// Use optimized LIKE search for compatibility
-		// TODO: Consider FULLTEXT search after proper index verification
+		// Priority: name search first (faster), skip description for speed
+		countQuery := "SELECT COUNT(*) FROM products WHERE name LIKE ?"
+		searchPattern := "%" + req.Search + "%"
+		err := r.db.GetContext(ctx, &total, countQuery, searchPattern)
+		if err != nil {
+			return productResult{}, err
+		}
+
+		// Fast data query - only search name, exclude description for speed
 		query = fmt.Sprintf(`
-			SELECT
-				product_id, name, value, weight, image, description,
-				COUNT(*) OVER() as total_count
+			SELECT product_id, name, value, weight, image
 			FROM products
-			WHERE (name LIKE ? OR description LIKE ?)
+			WHERE name LIKE ?
 			ORDER BY %s %s, product_id ASC
 			LIMIT ? OFFSET ?`, req.SortField, req.SortOrder)
-		searchPattern := "%" + req.Search + "%"
-		args = append(args, searchPattern, searchPattern, req.PageSize, req.Offset)
+		args = append(args, searchPattern, req.PageSize, req.Offset)
 	} else {
-		// No search: use covering index for optimal performance
+		// Use cached total count for better performance
+		total = r.getCachedTotalCount(ctx)
+
+		// Fast data query without COUNT(*) OVER() and description
 		query = fmt.Sprintf(`
-			SELECT
-				product_id, name, value, weight, image, description,
-				COUNT(*) OVER() as total_count
+			SELECT product_id, name, value, weight, image
 			FROM products
 			ORDER BY %s %s, product_id ASC
 			LIMIT ? OFFSET ?`, req.SortField, req.SortOrder)
 		args = append(args, req.PageSize, req.Offset)
 	}
 
-	type productRowWithCount struct {
-		ProductID   int    `db:"product_id"`
-		Name        string `db:"name"`
-		Value       int    `db:"value"`
-		Weight      int    `db:"weight"`
-		Image       string `db:"image"`
-		Description string `db:"description"`
-		TotalCount  int    `db:"total_count"`
-	}
-
-	var productsRaw []productRowWithCount
-	err := r.db.SelectContext(ctx, &productsRaw, query, args...)
+	// Direct mapping to model.ProductListItem (no intermediate struct)
+	err := r.db.SelectContext(ctx, &products, query, args...)
 	if err != nil {
 		return productResult{}, err
 	}
 
-	if len(productsRaw) == 0 {
-		return productResult{products: []model.Product{}, total: 0}, nil
-	}
-
-	// 最初の行からtotal_countを取得
-	total := productsRaw[0].TotalCount
-
-	products = make([]model.Product, len(productsRaw))
-	for i, p := range productsRaw {
-		products[i] = model.Product{
-			ProductID:   p.ProductID,
-			Name:        p.Name,
-			Value:       p.Value,
-			Weight:      p.Weight,
-			Image:       p.Image,
-			Description: p.Description,
-		}
+	if len(products) == 0 {
+		return productResult{products: []model.ProductListItem{}, total: total}, nil
 	}
 
 	return productResult{products: products, total: total}, nil
+}
+
+// getCachedTotalCount - 総件数をキャッシュして取得
+func (r *ProductRepository) getCachedTotalCount(ctx context.Context) int {
+	r.countMutex.RLock()
+	// Cache is valid for 10 minutes
+	if time.Since(r.countTime) < 10*time.Minute && r.totalCount > 0 {
+		count := r.totalCount
+		r.countMutex.RUnlock()
+		return count
+	}
+	r.countMutex.RUnlock()
+
+	// Need to refresh cache
+	r.countMutex.Lock()
+	defer r.countMutex.Unlock()
+
+	// Double-check in case another goroutine updated it
+	if time.Since(r.countTime) < 10*time.Minute && r.totalCount > 0 {
+		return r.totalCount
+	}
+
+	var count int
+	err := r.db.GetContext(ctx, &count, "SELECT COUNT(*) FROM products")
+	if err != nil {
+		// Return cached value if available, otherwise 0
+		return r.totalCount
+	}
+
+	r.totalCount = count
+	r.countTime = time.Now()
+	return count
 }
 

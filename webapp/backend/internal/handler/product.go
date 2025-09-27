@@ -57,8 +57,8 @@ func (h *ProductHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := struct {
-		Data  []model.Product `json:"data"`
-		Total int             `json:"total"`
+		Data  []model.ProductListItem `json:"data"`
+		Total int                     `json:"total"`
 	}{
 		Data:  products,
 		Total: total,

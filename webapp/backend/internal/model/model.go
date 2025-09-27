@@ -20,6 +20,15 @@ type Product struct {
 	Description string `db:"description"  json:"description"`
 }
 
+// ProductListItem - 一覧表示用の軽量版（descriptionを除外）
+type ProductListItem struct {
+	ProductID int    `db:"product_id" json:"product_id"`
+	Name      string `db:"name"       json:"name"`
+	Value     int    `db:"value"      json:"value"`
+	Weight    int    `db:"weight"     json:"weight"`
+	Image     string `db:"image"      json:"image"`
+}
+
 type Order struct {
 	OrderID       int64        `db:"order_id"        json:"order_id"`
 	UserID        int          `db:"user_id"         json:"user_id"`
