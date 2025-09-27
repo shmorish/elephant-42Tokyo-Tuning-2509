@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -64,126 +63,102 @@ func (r *OrderRepository) GetShippingOrders(ctx context.Context) ([]model.Order,
 	return orders, err
 }
 
-// 注文履歴一覧を取得
-// MEMO:ここ修正する
 func (r *OrderRepository) ListOrders(ctx context.Context, userID int, req model.ListRequest) ([]model.Order, int, error) {
-	// return []model.Order{}, 0, nil
+	var searchCondition string
+	var searchArgs []interface{}
+	args := []interface{}{userID}
 
-	query := `
-        SELECT order_id, product_id, shipped_status, created_at, arrived_at
-        FROM orders
-        WHERE user_id = ?
-    `
+	if req.Search != "" {
+		if req.Type == "prefix" {
+			searchCondition = "AND p.name LIKE ?"
+			searchArgs = append(searchArgs, req.Search+"%")
+		} else {
+			searchCondition = "AND p.name LIKE ?"
+			searchArgs = append(searchArgs, "%"+req.Search+"%")
+		}
+		args = append(args, searchArgs...)
+	}
+
+	var orderByClause string
+	switch req.SortField {
+	case "product_name":
+		orderByClause = "ORDER BY p.name"
+	case "created_at":
+		orderByClause = "ORDER BY o.created_at"
+	case "shipped_status":
+		orderByClause = "ORDER BY o.shipped_status"
+	case "arrived_at":
+		orderByClause = "ORDER BY o.arrived_at"
+	case "order_id":
+		fallthrough
+	default:
+		orderByClause = "ORDER BY o.order_id"
+	}
+
+	if strings.ToUpper(req.SortOrder) == "DESC" {
+		orderByClause += " DESC"
+	} else {
+		orderByClause += " ASC"
+	}
+
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM orders o
+		JOIN products p ON o.product_id = p.product_id
+		WHERE o.user_id = ?
+		%s
+	`, searchCondition)
+
+	var total int
+	err := r.db.GetContext(ctx, &total, countQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	dataQuery := fmt.Sprintf(`
+		SELECT
+			o.order_id,
+			o.product_id,
+			p.name as product_name,
+			o.shipped_status,
+			o.created_at,
+			o.arrived_at
+		FROM orders o
+		JOIN products p ON o.product_id = p.product_id
+		WHERE o.user_id = ?
+		%s
+		%s
+		LIMIT ? OFFSET ?
+	`, searchCondition, orderByClause)
+
+	args = append(args, req.PageSize, req.Offset)
+
 	type orderRow struct {
 		OrderID       int          `db:"order_id"`
 		ProductID     int          `db:"product_id"`
+		ProductName   string       `db:"product_name"`
 		ShippedStatus string       `db:"shipped_status"`
 		CreatedAt     sql.NullTime `db:"created_at"`
 		ArrivedAt     sql.NullTime `db:"arrived_at"`
 	}
+
 	var ordersRaw []orderRow
-	if err := r.db.SelectContext(ctx, &ordersRaw, query, userID); err != nil {
+	err = r.db.SelectContext(ctx, &ordersRaw, dataQuery, args...)
+	if err != nil {
 		return nil, 0, err
 	}
 
-	var orders []model.Order
-	for _, o := range ordersRaw {
-		var productName string
-		if err := r.db.GetContext(ctx, &productName, "SELECT name FROM products WHERE product_id = ?", o.ProductID); err != nil {
-			return nil, 0, err
-		}
-		if req.Search != "" {
-			if req.Type == "prefix" {
-				if !strings.HasPrefix(productName, req.Search) {
-					continue
-				}
-			} else {
-				if !strings.Contains(productName, req.Search) {
-					continue
-				}
-			}
-		}
-		orders = append(orders, model.Order{
+	orders := make([]model.Order, len(ordersRaw))
+	for i, o := range ordersRaw {
+		orders[i] = model.Order{
 			OrderID:       int64(o.OrderID),
 			ProductID:     o.ProductID,
-			ProductName:   productName,
+			ProductName:   o.ProductName,
 			ShippedStatus: o.ShippedStatus,
 			CreatedAt:     o.CreatedAt.Time,
 			ArrivedAt:     o.ArrivedAt,
-		})
-	}
-
-	switch req.SortField {
-	case "product_name":
-		if strings.ToUpper(req.SortOrder) == "DESC" {
-			sort.SliceStable(orders, func(i, j int) bool {
-				return orders[i].ProductName > orders[j].ProductName
-			})
-		} else {
-			sort.SliceStable(orders, func(i, j int) bool {
-				return orders[i].ProductName < orders[j].ProductName
-			})
-		}
-	case "created_at":
-		if strings.ToUpper(req.SortOrder) == "DESC" {
-			sort.SliceStable(orders, func(i, j int) bool {
-				return orders[i].CreatedAt.After(orders[j].CreatedAt)
-			})
-		} else {
-			sort.SliceStable(orders, func(i, j int) bool {
-				return orders[i].CreatedAt.Before(orders[j].CreatedAt)
-			})
-		}
-	case "shipped_status":
-		if strings.ToUpper(req.SortOrder) == "DESC" {
-			sort.SliceStable(orders, func(i, j int) bool {
-				return orders[i].ShippedStatus > orders[j].ShippedStatus
-			})
-		} else {
-			sort.SliceStable(orders, func(i, j int) bool {
-				return orders[i].ShippedStatus < orders[j].ShippedStatus
-			})
-		}
-	case "arrived_at":
-		if strings.ToUpper(req.SortOrder) == "DESC" {
-			sort.SliceStable(orders, func(i, j int) bool {
-				if orders[i].ArrivedAt.Valid && orders[j].ArrivedAt.Valid {
-					return orders[i].ArrivedAt.Time.After(orders[j].ArrivedAt.Time)
-				}
-				return orders[i].ArrivedAt.Valid
-			})
-		} else {
-			sort.SliceStable(orders, func(i, j int) bool {
-				if orders[i].ArrivedAt.Valid && orders[j].ArrivedAt.Valid {
-					return orders[i].ArrivedAt.Time.Before(orders[j].ArrivedAt.Time)
-				}
-				return orders[j].ArrivedAt.Valid
-			})
-		}
-	case "order_id":
-		fallthrough
-	default:
-		if strings.ToUpper(req.SortOrder) == "DESC" {
-			sort.SliceStable(orders, func(i, j int) bool {
-				return orders[i].OrderID > orders[j].OrderID
-			})
-		} else {
-			sort.SliceStable(orders, func(i, j int) bool {
-				return orders[i].OrderID < orders[j].OrderID
-			})
 		}
 	}
 
-	total := len(orders)
-	start := req.Offset
-	end := req.Offset + req.PageSize
-	if start > total {
-		start = total
-	}
-	if end > total {
-		end = total
-	}
-	pagedOrders := orders[start:end]
-
-	return pagedOrders, total, nil
+	return orders, total, nil
 }
