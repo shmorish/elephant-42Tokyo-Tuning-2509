@@ -105,44 +105,70 @@ type productResult struct {
 
 func (r *ProductRepository) listProductsInternal(ctx context.Context, userID int, req model.ListRequest) (productResult, error) {
 	var products []model.Product
-	var total int
 
-	// Count query for total records
-	countQuery := "SELECT COUNT(*) FROM products"
-	countArgs := []interface{}{}
+	// 単一クエリでデータとカウントの両方を取得
+	var query string
+	var args []interface{}
 
 	if req.Search != "" {
-		countQuery += " WHERE (name LIKE ? OR description LIKE ?)"
+		// LIKE検索を使用（フルテキストインデックス作成まで）
+		query = `
+			SELECT
+				product_id, name, value, weight, image, description,
+				COUNT(*) OVER() as total_count
+			FROM products
+			WHERE (name LIKE ? OR description LIKE ?)
+			ORDER BY ` + req.SortField + ` ` + req.SortOrder + `, product_id ASC
+			LIMIT ? OFFSET ?`
 		searchPattern := "%" + req.Search + "%"
-		countArgs = append(countArgs, searchPattern, searchPattern)
+		args = append(args, searchPattern, searchPattern, req.PageSize, req.Offset)
+	} else {
+		// 検索条件がない場合
+		query = `
+			SELECT
+				product_id, name, value, weight, image, description,
+				COUNT(*) OVER() as total_count
+			FROM products
+			ORDER BY ` + req.SortField + ` ` + req.SortOrder + `, product_id ASC
+			LIMIT ? OFFSET ?`
+		args = append(args, req.PageSize, req.Offset)
 	}
 
-	err := r.db.GetContext(ctx, &total, countQuery, countArgs...)
+	type productRowWithCount struct {
+		ProductID   int    `db:"product_id"`
+		Name        string `db:"name"`
+		Value       int    `db:"value"`
+		Weight      int    `db:"weight"`
+		Image       string `db:"image"`
+		Description string `db:"description"`
+		TotalCount  int    `db:"total_count"`
+	}
+
+	var productsRaw []productRowWithCount
+	err := r.db.SelectContext(ctx, &productsRaw, query, args...)
 	if err != nil {
 		return productResult{}, err
 	}
 
-	// Data query with pagination
-	dataQuery := `
-		SELECT product_id, name, value, weight, image, description
-		FROM products
-	`
-	args := []interface{}{}
-
-	if req.Search != "" {
-		dataQuery += " WHERE (name LIKE ? OR description LIKE ?)"
-		searchPattern := "%" + req.Search + "%"
-		args = append(args, searchPattern, searchPattern)
+	if len(productsRaw) == 0 {
+		return productResult{products: []model.Product{}, total: 0}, nil
 	}
 
-	dataQuery += " ORDER BY " + req.SortField + " " + req.SortOrder + " , product_id ASC"
-	dataQuery += " LIMIT ? OFFSET ?"
-	args = append(args, req.PageSize, req.Offset)
+	// 最初の行からtotal_countを取得
+	total := productsRaw[0].TotalCount
 
-	err = r.db.SelectContext(ctx, &products, dataQuery, args...)
-	if err != nil {
-		return productResult{}, err
+	products = make([]model.Product, len(productsRaw))
+	for i, p := range productsRaw {
+		products[i] = model.Product{
+			ProductID:   p.ProductID,
+			Name:        p.Name,
+			Value:       p.Value,
+			Weight:      p.Weight,
+			Image:       p.Image,
+			Description: p.Description,
+		}
 	}
 
 	return productResult{products: products, total: total}, nil
 }
+
