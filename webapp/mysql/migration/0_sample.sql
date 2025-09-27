@@ -76,14 +76,11 @@ ALTER TABLE products ADD FULLTEXT(name, description);
 ALTER TABLE products ADD FULLTEXT(name);
 ALTER TABLE products ADD FULLTEXT(description);
 
--- Additional performance indexes for /api/v1/product endpoint optimization
--- Composite indexes for sorting by most common sort fields
+-- Essential indexes only for /api/v1/product endpoint optimization
+-- Keep only the most effective indexes to avoid performance degradation
+
+-- Composite index for value sorting (most common sort after name)
 CREATE INDEX idx_products_value_id ON products(value, product_id);
+
+-- Composite index for weight sorting
 CREATE INDEX idx_products_weight_id ON products(weight, product_id);
-
--- Individual field indexes for exact matches and range queries
-CREATE INDEX idx_products_value ON products(value);
-CREATE INDEX idx_products_weight ON products(weight);
-
--- Covering index for common query patterns (includes all frequently accessed columns)
-CREATE INDEX idx_products_covering ON products(product_id, name, value, weight);
