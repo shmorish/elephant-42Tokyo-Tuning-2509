@@ -16,7 +16,6 @@ func UserAuthMiddleware(sessionRepo *repository.SessionRepository) func(http.Han
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cookie, err := r.Cookie("session_id")
 			if err != nil {
-				// ログ出力を削減（パフォーマンス向上）
 				http.Error(w, "Unauthorized: No session cookie", http.StatusUnauthorized)
 				return
 			}
@@ -24,7 +23,6 @@ func UserAuthMiddleware(sessionRepo *repository.SessionRepository) func(http.Han
 
 			userID, err := sessionRepo.FindUserBySessionID(r.Context(), sessionID)
 			if err != nil {
-				// ログ出力を削減（パフォーマンス向上）
 				http.Error(w, "Unauthorized: Invalid session", http.StatusUnauthorized)
 				return
 			}
