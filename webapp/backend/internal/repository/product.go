@@ -111,7 +111,7 @@ func (r *ProductRepository) listProductsInternal(ctx context.Context, userID int
 	var args []interface{}
 
 	if req.Search != "" {
-		// LIKE検索を使用（フルテキストインデックスが利用できない場合のフォールバック）
+		// LIKE検索を使用（安定性を優先）
 		query = `
 			SELECT
 				product_id, name, value, weight, image, description,

@@ -33,14 +33,15 @@ func (h *RobotHandler) GetDeliveryPlan(w http.ResponseWriter, r *http.Request) {
 
 	plan, err := h.RobotSvc.GenerateDeliveryPlan(r.Context(), robotID, capacity)
 	if err != nil {
-		// ログ出力を削減（パフォーマンス向上）
-		// log.Printf("Failed to generate delivery plan: %v", err)
 		http.Error(w, "Failed to create delivery plan", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(plan)
+	if err := json.NewEncoder(w).Encode(plan); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }
 
 // 配送完了時に注文ステータスを更新

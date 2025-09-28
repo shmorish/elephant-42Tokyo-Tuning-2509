@@ -38,8 +38,6 @@ func (s *RobotService) GenerateDeliveryPlan(ctx context.Context, robotID string,
 				if err := txStore.OrderRepo.UpdateStatuses(ctx, orderIDs, "delivering"); err != nil {
 					return err
 				}
-				// ログ出力を削減（パフォーマンス向上）
-				// log.Printf("Updated status to 'delivering' for %d orders", len(orderIDs))
 			}
 			return nil
 		})
