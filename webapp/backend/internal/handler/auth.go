@@ -3,7 +3,6 @@ package handler
 import (
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 
 	"backend/internal/model"
@@ -20,7 +19,8 @@ func NewAuthHandler(authSvc *service.AuthService) *AuthHandler {
 
 // ログイン時にセッションを発行し、Cookieにセットする
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	log.Println("-> Received request for /api/login")
+	// ログ出力を削減（パフォーマンス向上）
+	// log.Println("-> Received request for /api/login")
 
 	var req model.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
