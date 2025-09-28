@@ -5,6 +5,7 @@ import (
 	"backend/internal/repository"
 	"backend/internal/service/utils"
 	"context"
+	"slices"
 )
 
 type RobotService struct {
@@ -120,9 +121,7 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 	}
 
 	// 注文の順序を元に戻す（復元は逆順で行われているため）
-	for i, j := 0, len(selectedOrders)-1; i < j; i, j = i+1, j-1 {
-		selectedOrders[i], selectedOrders[j] = selectedOrders[j], selectedOrders[i]
-	}
+	slices.Reverse(selectedOrders)
 
 	// 総重量を計算
 	var totalWeight int
