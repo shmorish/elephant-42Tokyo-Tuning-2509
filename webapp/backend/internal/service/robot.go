@@ -5,8 +5,6 @@ import (
 	"backend/internal/repository"
 	"backend/internal/service/utils"
 	"context"
-	"log"
-	"slices"
 )
 
 type RobotService struct {
@@ -39,7 +37,8 @@ func (s *RobotService) GenerateDeliveryPlan(ctx context.Context, robotID string,
 				if err := txStore.OrderRepo.UpdateStatuses(ctx, orderIDs, "delivering"); err != nil {
 					return err
 				}
-				log.Printf("Updated status to 'delivering' for %d orders", len(orderIDs))
+				// ログ出力を削減（パフォーマンス向上）
+				// log.Printf("Updated status to 'delivering' for %d orders", len(orderIDs))
 			}
 			return nil
 		})
@@ -67,7 +66,7 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 		}, nil
 	}
 
-	// DPテーブル: dp[i][w] = 最初のi個の注文で重さw以下の最大価値
+	// 2次元DPテーブル: dp[i][w] = 最初のi個の注文で重さw以下の最大価値
 	dp := make([][]int, n+1)
 	for i := range dp {
 		dp[i] = make([]int, robotCapacity+1)
@@ -90,7 +89,7 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 		}
 
 		// コンテキストキャンセルチェック
-		if i%1000 == 0 {
+		if i%100 == 0 {
 			select {
 			case <-ctx.Done():
 				return model.DeliveryPlan{}, ctx.Err()
@@ -121,17 +120,14 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 	}
 
 	// 注文の順序を元に戻す（復元は逆順で行われているため）
-	slices.Reverse(selectedOrders)
+	for i, j := 0, len(selectedOrders)-1; i < j; i, j = i+1, j-1 {
+		selectedOrders[i], selectedOrders[j] = selectedOrders[j], selectedOrders[i]
+	}
 
 	// 総重量を計算
 	var totalWeight int
 	for _, order := range selectedOrders {
 		totalWeight += order.Weight
-	}
-
-	// 警告ログ（デバッグ用）
-	if len(selectedOrders) == 0 && bestValue > 0 {
-		log.Printf("WARNING: bestValue=%d but no orders selected", bestValue)
 	}
 
 	return model.DeliveryPlan{

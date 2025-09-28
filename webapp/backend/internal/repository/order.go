@@ -121,9 +121,11 @@ func (r *OrderRepository) ListOrders(ctx context.Context, userID int, req model.
 
 	if req.Search != "" {
 		if req.Type == "prefix" {
+			// 前方一致検索（インデックス活用）
 			searchCondition = "AND p.name LIKE ?"
 			searchArgs = append(searchArgs, req.Search+"%")
 		} else {
+			// 部分一致検索（LIKE検索使用）
 			searchCondition = "AND p.name LIKE ?"
 			searchArgs = append(searchArgs, "%"+req.Search+"%")
 		}
