@@ -10,14 +10,23 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type ProductHandler struct {
 	ProductSvc *service.ProductService
+	ImageCache *ImageCache
 }
 
 func NewProductHandler(svc *service.ProductService) *ProductHandler {
-	return &ProductHandler{ProductSvc: svc}
+	// 画像キャッシュの設定
+	// 最大サイズ: 100MB, 有効期限: 1時間
+	imageCache := NewImageCache(100*1024*1024, time.Hour)
+	
+	return &ProductHandler{
+		ProductSvc: svc,
+		ImageCache: imageCache,
+	}
 }
 
 // 商品一覧を取得
@@ -110,6 +119,19 @@ func (h *ProductHandler) GetImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// キャッシュキーを生成
+	cacheKey := imagePath
+
+	// キャッシュから画像を取得
+	if data, contentType, found := h.ImageCache.Get(cacheKey); found {
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "public, max-age=3600") // 1時間キャッシュ
+		w.Header().Set("X-Cache", "HIT")
+		w.Write(data)
+		return
+	}
+
+	// キャッシュにない場合はファイルシステムから読み込み
 	baseImageDir := "/app/images"
 	fullPath := filepath.Join(baseImageDir, imagePath)
 
@@ -132,7 +154,6 @@ func (h *ProductHandler) GetImage(w http.ResponseWriter, r *http.Request) {
 	default:
 		contentType = "application/octet-stream"
 	}
-	w.Header().Set("Content-Type", contentType)
 
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
@@ -140,5 +161,27 @@ func (h *ProductHandler) GetImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// キャッシュに保存（サイズ制限内の場合のみ）
+	h.ImageCache.Set(cacheKey, data, contentType)
+
+	// レスポンスヘッダーを設定
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=3600") // 1時間キャッシュ
+	w.Header().Set("X-Cache", "MISS")
 	w.Write(data)
+}
+
+// GetImageCacheStats 画像キャッシュの統計情報を取得（デバッグ用）
+func (h *ProductHandler) GetImageCacheStats(w http.ResponseWriter, r *http.Request) {
+	count, totalSize := h.ImageCache.GetStats()
+	
+	stats := map[string]interface{}{
+		"cache_entries": count,
+		"total_size_mb": float64(totalSize) / (1024 * 1024),
+		"max_size_mb":   100.0, // 設定値
+		"max_age_hours": 1.0,   // 設定値
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
 }
