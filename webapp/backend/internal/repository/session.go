@@ -70,32 +70,30 @@ func (r *SessionRepository) FindUserBySessionID(ctx context.Context, sessionID s
 		r.mutex.Unlock()
 	}
 
-	// キャッシュにない場合はDBから取得
-	var userID int
+	// キャッシュにない場合はDBから取得（1回のクエリで両方を取得）
+	var sessionData struct {
+		UserID    int       `db:"user_id"`
+		ExpiresAt time.Time `db:"expires_at"`
+	}
 	query := `
 		SELECT 
-			u.user_id
+			u.user_id,
+			s.expires_at
 		FROM users u
 		JOIN user_sessions s ON u.user_id = s.user_id
 		WHERE s.session_uuid = ? AND s.expires_at > ?`
-	err := r.db.GetContext(ctx, &userID, query, sessionID, time.Now())
+	err := r.db.GetContext(ctx, &sessionData, query, sessionID, time.Now())
 	if err != nil {
 		return 0, err
 	}
 
 	// DBから取得したセッション情報をキャッシュに保存
-	// 有効期限を取得するため、追加クエリを実行
-	var expiresAt time.Time
-	expireQuery := `SELECT expires_at FROM user_sessions WHERE session_uuid = ?`
-	err = r.db.GetContext(ctx, &expiresAt, expireQuery, sessionID)
-	if err == nil {
-		r.mutex.Lock()
-		r.cache[sessionID] = sessionCache{
-			userID:    userID,
-			expiresAt: expiresAt,
-		}
-		r.mutex.Unlock()
+	r.mutex.Lock()
+	r.cache[sessionID] = sessionCache{
+		userID:    sessionData.UserID,
+		expiresAt: sessionData.ExpiresAt,
 	}
+	r.mutex.Unlock()
 
-	return userID, nil
+	return sessionData.UserID, nil
 }
